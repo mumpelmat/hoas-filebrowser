@@ -66,6 +66,19 @@ def file_info(path: Path, base: Path):
     }
 
 
+def sanitize_uploaded_path(filename: str) -> Path:
+    parts = []
+    for part in filename.replace("\\", "/").split("/"):
+        safe_part = secure_filename(part)
+        if safe_part:
+            parts.append(safe_part)
+
+    if not parts:
+        raise ValueError("Invalid filename")
+
+    return Path(*parts)
+
+
 @app.errorhandler(Exception)
 def handle_error(e):
     return jsonify({"error": str(e)}), 400
@@ -130,12 +143,14 @@ def api_upload():
 
     uploaded = []
     for f in request.files.getlist("files"):
-        filename = secure_filename(f.filename or "")
-        if not filename:
+        filename = f.filename or ""
+        upload_path = sanitize_uploaded_path(filename)
+        dest = safe_path(root, str(Path(rel) / upload_path))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not upload_path.name:
             continue
-        dest = safe_path(root, str(Path(rel) / filename))
         f.save(dest)
-        uploaded.append(filename)
+        uploaded.append(str(upload_path))
 
     return jsonify({"uploaded": uploaded})
 
@@ -276,11 +291,12 @@ INDEX_HTML = r'''
   <select id="root"></select>
   <button onclick="goUp()">↑ Hoch</button>
   <button onclick="newFolder()">Neuer Ordner</button>
-  <label><input id="fileInput" type="file" multiple hidden onchange="uploadFiles(this.files)"><button class="primary" onclick="document.getElementById('fileInput').click()">Upload</button></label>
+    <label><input id="fileInput" type="file" multiple hidden onchange="uploadFiles(this.files)"><button class="primary" onclick="document.getElementById('fileInput').click()">Dateien hochladen</button></label>
+    <label><input id="folderInput" type="file" webkitdirectory directory multiple hidden onchange="uploadFiles(this.files)"><button class="primary" onclick="document.getElementById('folderInput').click()">Ordner hochladen</button></label>
 </header>
 <main>
   <div class="bar"><span>Pfad:</span><span id="path" class="path"></span></div>
-  <div id="drop" class="drop">Dateien hier hineinziehen zum Upload in den aktuellen Ordner</div>
+    <div id="drop" class="drop">Dateien oder Ordner hier hineinziehen zum Upload in den aktuellen Ordner</div>
   <div class="card">
     <table>
       <thead><tr><th>Name</th><th class="hide-mobile">Typ</th><th class="hide-mobile">Größe</th><th>Aktionen</th></tr></thead>
@@ -355,9 +371,74 @@ async function uploadFiles(files) {
   const fd = new FormData();
   fd.append('root', currentRoot);
   fd.append('path', currentPath);
-  [...files].forEach(f => fd.append('files', f));
+    [...files].forEach(f => {
+        const relativePath = f.webkitRelativePath || f.name;
+        fd.append('files', f, relativePath);
+    });
   await api('api/upload', {method:'POST', body:fd});
   await loadList();
+}
+
+function readDirectoryEntries(reader) {
+    return new Promise((resolve, reject) => {
+        const entries = [];
+        const readBatch = () => {
+            reader.readEntries(batch => {
+                if (!batch.length) {
+                    resolve(entries);
+                    return;
+                }
+                entries.push(...batch);
+                readBatch();
+            }, reject);
+        };
+        readBatch();
+    });
+}
+
+async function collectDroppedFiles(items) {
+    const files = [];
+
+    async function walkEntry(entry, prefix = '') {
+        if (entry.isFile) {
+            const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+            files.push({file, relativePath: `${prefix}${entry.name}`});
+            return;
+        }
+
+        if (entry.isDirectory) {
+            const children = await readDirectoryEntries(entry.createReader());
+            for (const child of children) {
+                await walkEntry(child, `${prefix}${entry.name}/`);
+            }
+        }
+    }
+
+    for (const item of items) {
+        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+        if (entry) {
+            await walkEntry(entry);
+            continue;
+        }
+
+        const file = item.getAsFile ? item.getAsFile() : item;
+        if (file) {
+            files.push({file, relativePath: file.webkitRelativePath || file.name});
+        }
+    }
+
+    return files;
+}
+
+async function uploadDroppedItems(items) {
+    const files = await collectDroppedFiles(items);
+    if (!files.length) return;
+    const fd = new FormData();
+    fd.append('root', currentRoot);
+    fd.append('path', currentPath);
+    files.forEach(({file, relativePath}) => fd.append('files', file, relativePath));
+    await api('api/upload', {method:'POST', body:fd});
+    await loadList();
 }
 
 async function newFolder(){
@@ -397,7 +478,11 @@ async function moveItem(src_path){
 const drop = document.getElementById('drop');
 drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
 drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
-drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('drag'); uploadFiles(e.dataTransfer.files); });
+drop.addEventListener('drop', async e => {
+    e.preventDefault();
+    drop.classList.remove('drag');
+    await uploadDroppedItems(e.dataTransfer.items || e.dataTransfer.files);
+});
 
 loadRoots().then(loadList).catch(e => alert(e.message));
 </script>

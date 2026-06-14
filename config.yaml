@@ -1,5 +1,5 @@
 name: "Local File Browser"
-version: "0.1.0"
+version: "0.1.1"
 slug: "local_file_browser"
 description: "Simple private file browser for Home Assistant OS with upload, download, copy, move, rename and delete."
 url: "https://github.com/local/local-file-browser"
