@@ -57,11 +57,13 @@ def safe_path(root_name: str, rel_path: str = "") -> Path:
 
 def file_info(path: Path, base: Path):
     stat = path.stat()
+    added = getattr(stat, "st_birthtime", stat.st_ctime)
     return {
         "name": path.name,
         "path": str(path.relative_to(base)),
         "is_dir": path.is_dir(),
         "size": stat.st_size if path.is_file() else None,
+        "added": int(added),
         "modified": int(stat.st_mtime),
     }
 
@@ -283,7 +285,9 @@ INDEX_HTML = r'''
         .toolbar .count { color:var(--muted); font-size:13px; margin-right:auto; }
         .icon-btn { display:inline-flex; align-items:center; gap:6px; }
         .icon { width:1em; height:1em; display:inline-block; line-height:1; }
-        .checkbox-col { width:42px; }
+        .selection-col { width:42px; }
+        .date-select { min-width:140px; }
+        .cell-meta { color:var(--muted); font-size:12px; margin-top:2px; }
     .drop { border:2px dashed var(--line); border-radius:12px; padding:18px; text-align:center; color:var(--muted); margin-bottom:12px; background:#fff; }
     .drop.drag { border-color:var(--accent); color:var(--accent); }
     .small { font-size:12px; color:var(--muted); }
@@ -307,6 +311,7 @@ INDEX_HTML = r'''
   <div class="bar"><span>Pfad:</span><span id="path" class="path"></span></div>
     <div class="toolbar">
         <div id="selectionCount" class="count">0 ausgewählt</div>
+        <label class="icon-btn"><span class="icon">📅</span><select id="dateMode" class="date-select" onchange="loadList()"><option value="changed">Changed</option><option value="added">Added</option></select></label>
         <button class="icon-btn" id="downloadBtn" onclick="downloadSelection()"><span class="icon">⬇️</span><span>Download</span></button>
         <button class="icon-btn" id="renameBtn" onclick="renameSelection()"><span class="icon">✏️</span><span>Umbenennen</span></button>
         <button class="icon-btn" id="copyBtn" onclick="copySelection()"><span class="icon">📋</span><span>Kopieren</span></button>
@@ -317,7 +322,7 @@ INDEX_HTML = r'''
     <div id="drop" class="drop">Dateien oder Ordner hier hineinziehen zum Upload in den aktuellen Ordner</div>
   <div class="card">
     <table>
-            <thead><tr><th class="checkbox-col"></th><th>Name</th><th class="hide-mobile">Typ</th><th class="hide-mobile">Größe</th></tr></thead>
+                        <thead><tr><th class="selection-col"><input id="selectAll" type="checkbox" onchange="toggleSelectAll(this.checked)"></th><th>Name</th><th class="hide-mobile">Datum</th><th class="hide-mobile">Größe</th></tr></thead>
       <tbody id="items"></tbody>
     </table>
   </div>
@@ -337,6 +342,7 @@ let parentPath = '';
 let selectedPaths = new Set();
 let selectedItem = null;
 let contextPath = '';
+let currentRows = [];
 
 async function api(url, options) {
   const res = await fetch(url, options);
@@ -350,6 +356,7 @@ async function api(url, options) {
 
 function enc(v){ return encodeURIComponent(v || ''); }
 function size(n){ if(n===null||n===undefined) return ''; const u=['B','KB','MB','GB']; let i=0; while(n>1024&&i<u.length-1){n/=1024;i++;} return `${n.toFixed(i?1:0)} ${u[i]}`; }
+function formatDate(ts) { return new Date(ts * 1000).toLocaleString(); }
 function icon(name){ return `<span class="icon" aria-hidden="true">${name}</span>`; }
 
 function selectedItems() {
@@ -364,6 +371,12 @@ function refreshToolbar() {
     document.getElementById('copyBtn').disabled = count === 0;
     document.getElementById('moveBtn').disabled = count === 0;
     document.getElementById('deleteBtn').disabled = count === 0;
+    const selectAll = document.getElementById('selectAll');
+    if (selectAll) {
+        const visibleSelectable = currentRows.length;
+        selectAll.checked = visibleSelectable > 0 && currentRows.every(row => selectedPaths.has(row.path));
+        selectAll.indeterminate = selectedPaths.size > 0 && !selectAll.checked;
+    }
 }
 
 function clearSelection() {
@@ -387,6 +400,13 @@ function setSelection(path, checked) {
 
 function toggleSelection(path, checked) {
     setSelection(path, checked);
+}
+
+function toggleSelectAll(checked) {
+    document.querySelectorAll('input[data-path]').forEach(cb => {
+        cb.checked = checked;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+    });
 }
 
 function selectedOrContext() {
@@ -435,18 +455,21 @@ async function loadList() {
   currentPath = data.path || '';
   parentPath = data.parent || '';
     clearSelection();
+    currentRows = data.items || [];
   document.getElementById('path').textContent = `/${currentRoot}/${currentPath}`.replace(/\/$/, '');
   const tbody = document.getElementById('items');
   tbody.innerHTML = '';
-  data.items.forEach(item => {
+    const dateMode = document.getElementById('dateMode').value;
+    currentRows.forEach(item => {
     const tr = document.createElement('tr');
         tr.dataset.path = item.path;
         tr.dataset.isDir = item.is_dir ? '1' : '0';
         const rowIcon = item.is_dir ? '📁' : '📄';
+                const rowDate = dateMode === 'added' ? item.added : item.modified;
     tr.innerHTML = `
-            <td class="checkbox-col"><input type="checkbox" data-path="${escapeJs(item.path)}"></td>
-            <td class="name">${rowIcon} ${item.name}</td>
-      <td class="hide-mobile">${item.is_dir ? 'Ordner' : 'Datei'}</td>
+                        <td class="selection-col"><input type="checkbox" data-path="${escapeJs(item.path)}"></td>
+                        <td class="name">${rowIcon} ${item.name}</td>
+            <td class="hide-mobile"><div>${formatDate(rowDate)}</div><div class="cell-meta">${dateMode}</div></td>
             <td class="hide-mobile">${item.is_dir ? '' : size(item.size)}</td>`;
         const checkbox = tr.querySelector('input[type="checkbox"]');
         checkbox.addEventListener('click', e => e.stopPropagation());

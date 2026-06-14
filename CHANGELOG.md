@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+- Added multi-selection in the title column with a select-all checkbox.
+- Replaced the type column with a selectable date column.
+- Added date modes for added and changed timestamps.
+
 ## 0.1.3
 - Updated repository metadata to point to the GitHub repository.
 - Kept the add-on version aligned with the published release.
