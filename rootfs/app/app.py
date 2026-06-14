@@ -260,55 +260,83 @@ INDEX_HTML = r'''
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Local File Browser</title>
   <style>
-    :root { --bg:#f6f7f9; --card:#fff; --text:#17202a; --muted:#6b7280; --line:#d9dee7; --accent:#2563eb; --danger:#b91c1c; }
+        :root { --bg:#f6f7f9; --card:#fff; --text:#17202a; --muted:#6b7280; --line:#d9dee7; --accent:#2563eb; --danger:#b91c1c; --hover:#eef4ff; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:var(--text); }
     header { padding:14px 18px; background:var(--card); border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
     h1 { font-size:18px; margin:0 10px 0 0; }
-    select, button, input { font:inherit; border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:#fff; }
+        select, button, input { font:inherit; border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:#fff; }
     button { cursor:pointer; }
     button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
     button.danger { color:var(--danger); }
     main { padding:18px; }
-    .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+        .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
     .path { color:var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .card { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
     table { width:100%; border-collapse:collapse; }
-    th, td { padding:10px 12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle; }
+        th, td { padding:10px 12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle; }
     th { background:#fafafa; color:var(--muted); font-weight:600; }
-    tr:hover td { background:#f9fbff; }
-    .name { cursor:pointer; font-weight:600; }
-    .actions { display:flex; gap:6px; flex-wrap:wrap; }
+        tr:hover td { background:#f9fbff; }
+        tr.selected td { background:var(--hover); }
+        .name { cursor:pointer; font-weight:600; }
+        .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; padding:10px; background:var(--card); border:1px solid var(--line); border-radius:12px; }
+        .toolbar .count { color:var(--muted); font-size:13px; margin-right:auto; }
+        .icon-btn { display:inline-flex; align-items:center; gap:6px; }
+        .icon { width:1em; height:1em; display:inline-block; line-height:1; }
+        .checkbox-col { width:42px; }
     .drop { border:2px dashed var(--line); border-radius:12px; padding:18px; text-align:center; color:var(--muted); margin-bottom:12px; background:#fff; }
     .drop.drag { border-color:var(--accent); color:var(--accent); }
     .small { font-size:12px; color:var(--muted); }
-    @media(max-width:800px){ .hide-mobile{display:none} th,td{padding:8px} .actions button{padding:6px 8px} }
+        .context-menu { position:fixed; z-index:1000; min-width:220px; background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:0 16px 40px rgba(15,23,42,.14); padding:6px; display:none; }
+        .context-menu button { width:100%; justify-content:flex-start; border:none; background:transparent; padding:10px 12px; border-radius:10px; display:flex; align-items:center; gap:8px; }
+        .context-menu button:hover { background:#f3f7ff; }
+        .context-menu button.danger { color:var(--danger); }
+        @media(max-width:800px){ .hide-mobile{display:none} th,td{padding:8px} .toolbar{gap:6px} }
   </style>
 </head>
 <body>
 <header>
   <h1>Files</h1>
   <select id="root"></select>
-  <button onclick="goUp()">↑ Hoch</button>
-  <button onclick="newFolder()">Neuer Ordner</button>
+    <button class="icon-btn" onclick="goUp()"><span class="icon">⬆️</span><span>Hoch</span></button>
+    <button class="icon-btn" onclick="newFolder()"><span class="icon">📁</span><span>Neuer Ordner</span></button>
     <label><input id="fileInput" type="file" multiple hidden onchange="uploadFiles(this.files)"><button class="primary" onclick="document.getElementById('fileInput').click()">Dateien hochladen</button></label>
     <label><input id="folderInput" type="file" webkitdirectory directory multiple hidden onchange="uploadFiles(this.files)"><button class="primary" onclick="document.getElementById('folderInput').click()">Ordner hochladen</button></label>
 </header>
 <main>
   <div class="bar"><span>Pfad:</span><span id="path" class="path"></span></div>
+    <div class="toolbar">
+        <div id="selectionCount" class="count">0 ausgewählt</div>
+        <button class="icon-btn" id="downloadBtn" onclick="downloadSelection()"><span class="icon">⬇️</span><span>Download</span></button>
+        <button class="icon-btn" id="renameBtn" onclick="renameSelection()"><span class="icon">✏️</span><span>Umbenennen</span></button>
+        <button class="icon-btn" id="copyBtn" onclick="copySelection()"><span class="icon">📋</span><span>Kopieren</span></button>
+        <button class="icon-btn" id="moveBtn" onclick="moveSelection()"><span class="icon">📦</span><span>Verschieben</span></button>
+        <button class="icon-btn danger" id="deleteBtn" onclick="deleteSelection()"><span class="icon">🗑️</span><span>Löschen</span></button>
+        <button class="icon-btn" onclick="clearSelection()"><span class="icon">✖️</span><span>Auswahl löschen</span></button>
+    </div>
     <div id="drop" class="drop">Dateien oder Ordner hier hineinziehen zum Upload in den aktuellen Ordner</div>
   <div class="card">
     <table>
-      <thead><tr><th>Name</th><th class="hide-mobile">Typ</th><th class="hide-mobile">Größe</th><th>Aktionen</th></tr></thead>
+            <thead><tr><th class="checkbox-col"></th><th>Name</th><th class="hide-mobile">Typ</th><th class="hide-mobile">Größe</th></tr></thead>
       <tbody id="items"></tbody>
     </table>
   </div>
   <p class="small">Achtung: Änderungen wirken direkt auf die gemounteten Home-Assistant-Ordner.</p>
 </main>
+<div id="contextMenu" class="context-menu" role="menu" aria-hidden="true">
+    <button type="button" onclick="contextAction('download')"><span class="icon">⬇️</span>Download</button>
+    <button type="button" onclick="contextAction('rename')"><span class="icon">✏️</span>Umbenennen</button>
+    <button type="button" onclick="contextAction('copy')"><span class="icon">📋</span>Kopieren</button>
+    <button type="button" onclick="contextAction('move')"><span class="icon">📦</span>Verschieben</button>
+    <button type="button" class="danger" onclick="contextAction('delete')"><span class="icon">🗑️</span>Löschen</button>
+</div>
 <script>
 let currentRoot = 'config';
 let currentPath = '';
 let parentPath = '';
+let selectedPaths = new Set();
+let selectedItem = null;
+let contextPath = '';
 
 async function api(url, options) {
   const res = await fetch(url, options);
@@ -322,6 +350,71 @@ async function api(url, options) {
 
 function enc(v){ return encodeURIComponent(v || ''); }
 function size(n){ if(n===null||n===undefined) return ''; const u=['B','KB','MB','GB']; let i=0; while(n>1024&&i<u.length-1){n/=1024;i++;} return `${n.toFixed(i?1:0)} ${u[i]}`; }
+function icon(name){ return `<span class="icon" aria-hidden="true">${name}</span>`; }
+
+function selectedItems() {
+    return [...selectedPaths];
+}
+
+function refreshToolbar() {
+    const count = selectedPaths.size;
+    document.getElementById('selectionCount').textContent = `${count} ausgewählt`;
+    document.getElementById('downloadBtn').disabled = count === 0 || count > 1;
+    document.getElementById('renameBtn').disabled = count !== 1;
+    document.getElementById('copyBtn').disabled = count === 0;
+    document.getElementById('moveBtn').disabled = count === 0;
+    document.getElementById('deleteBtn').disabled = count === 0;
+}
+
+function clearSelection() {
+    selectedPaths.clear();
+    selectedItem = null;
+    refreshToolbar();
+    document.querySelectorAll('input[data-path]').forEach(cb => { cb.checked = false; });
+    document.querySelectorAll('tr[data-path]').forEach(tr => tr.classList.remove('selected'));
+}
+
+function setSelection(path, checked) {
+    if (checked) {
+        selectedPaths.add(path);
+    } else {
+        selectedPaths.delete(path);
+    }
+    const row = document.querySelector(`tr[data-path="${CSS.escape(path)}"]`);
+    if (row) row.classList.toggle('selected', checked);
+    refreshToolbar();
+}
+
+function toggleSelection(path, checked) {
+    setSelection(path, checked);
+}
+
+function selectedOrContext() {
+    if (selectedPaths.size) return [...selectedPaths];
+    return contextPath ? [contextPath] : [];
+}
+
+function hideContextMenu() {
+    const menu = document.getElementById('contextMenu');
+    menu.style.display = 'none';
+    menu.setAttribute('aria-hidden', 'true');
+}
+
+function showContextMenu(x, y, path, isDir) {
+    contextPath = path;
+    selectedItem = {path, isDir};
+    const menu = document.getElementById('contextMenu');
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    menu.style.display = 'block';
+    menu.setAttribute('aria-hidden', 'false');
+}
+
+document.addEventListener('click', hideContextMenu);
+document.addEventListener('scroll', hideContextMenu, true);
+document.addEventListener('contextmenu', e => {
+    if (!e.target.closest('#items')) hideContextMenu();
+});
 
 async function loadRoots() {
   const data = await api('api/roots');
@@ -341,31 +434,58 @@ async function loadList() {
   const data = await api(`api/list?root=${enc(currentRoot)}&path=${enc(currentPath)}`);
   currentPath = data.path || '';
   parentPath = data.parent || '';
+    clearSelection();
   document.getElementById('path').textContent = `/${currentRoot}/${currentPath}`.replace(/\/$/, '');
   const tbody = document.getElementById('items');
   tbody.innerHTML = '';
   data.items.forEach(item => {
     const tr = document.createElement('tr');
-    const icon = item.is_dir ? '📁' : '📄';
+        tr.dataset.path = item.path;
+        tr.dataset.isDir = item.is_dir ? '1' : '0';
+        const rowIcon = item.is_dir ? '📁' : '📄';
     tr.innerHTML = `
-      <td class="name">${icon} ${item.name}</td>
+            <td class="checkbox-col"><input type="checkbox" data-path="${escapeJs(item.path)}"></td>
+            <td class="name">${rowIcon} ${item.name}</td>
       <td class="hide-mobile">${item.is_dir ? 'Ordner' : 'Datei'}</td>
-      <td class="hide-mobile">${item.is_dir ? '' : size(item.size)}</td>
-      <td><div class="actions">
-        <button onclick="downloadItem('${escapeJs(item.path)}')">Download</button>
-        <button onclick="renameItem('${escapeJs(item.path)}','${escapeJs(item.name)}')">Umbenennen</button>
-        <button onclick="copyItem('${escapeJs(item.path)}')">Kopieren</button>
-        <button onclick="moveItem('${escapeJs(item.path)}')">Verschieben</button>
-        <button class="danger" onclick="deleteItem('${escapeJs(item.path)}')">Löschen</button>
-      </div></td>`;
-    tr.querySelector('.name').onclick = () => { if(item.is_dir){ currentPath = item.path; loadList(); } else { downloadItem(item.path); } };
+            <td class="hide-mobile">${item.is_dir ? '' : size(item.size)}</td>`;
+        const checkbox = tr.querySelector('input[type="checkbox"]');
+        checkbox.addEventListener('click', e => e.stopPropagation());
+        checkbox.addEventListener('change', () => toggleSelection(item.path, checkbox.checked));
+        tr.querySelector('.name').onclick = () => {
+            hideContextMenu();
+            if(item.is_dir){ currentPath = item.path; loadList(); } else { downloadItem(item.path); }
+        };
+        tr.oncontextmenu = e => {
+            e.preventDefault();
+            showContextMenu(e.clientX, e.clientY, item.path, item.is_dir);
+        };
     tbody.appendChild(tr);
   });
+    refreshToolbar();
 }
 
 function escapeJs(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 function goUp(){ currentPath = parentPath || ''; loadList(); }
 function downloadItem(path){ window.location = `api/download?root=${enc(currentRoot)}&path=${enc(path)}`; }
+
+function currentSelectionPath() {
+    if (selectedPaths.size === 1) return [...selectedPaths][0];
+    if (contextPath) return contextPath;
+    return null;
+}
+
+function ensureSingleSelection(action) {
+    const path = currentSelectionPath();
+    if (!path) {
+        alert(`Bitte zuerst ein Element für ${action} auswählen.`);
+        return null;
+    }
+    if (selectedPaths.size > 1) {
+        alert(`Für ${action} bitte nur ein Element auswählen.`);
+        return null;
+    }
+    return path;
+}
 
 async function uploadFiles(files) {
   const fd = new FormData();
@@ -473,6 +593,64 @@ async function moveItem(src_path){
   if(dst_path === null) return;
   await api('api/move', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({src_root:currentRoot,src_path,dst_root:currentRoot,dst_path})});
   loadList();
+}
+
+async function downloadSelection() {
+    const path = ensureSingleSelection('Download');
+    if (!path) return;
+    downloadItem(path);
+}
+
+async function renameSelection() {
+    const path = ensureSingleSelection('Umbenennen');
+    if (!path) return;
+    const item = document.querySelector(`tr[data-path="${CSS.escape(path)}"]`);
+    const oldName = item ? item.querySelector('.name').textContent.replace(/^[📁📄]\s*/, '').trim() : path.split('/').pop();
+    await renameItem(path, oldName);
+}
+
+async function copySelection() {
+    const items = selectedOrContext();
+    if (!items.length) return;
+    const dst_path = prompt('Zielordner relativ zum aktuellen Root', currentPath);
+    if(dst_path === null) return;
+    for (const src_path of items) {
+        await api('api/copy', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({src_root:currentRoot,src_path,dst_root:currentRoot,dst_path})});
+    }
+    loadList();
+}
+
+async function moveSelection() {
+    const items = selectedOrContext();
+    if (!items.length) return;
+    const dst_path = prompt('Zielordner relativ zum aktuellen Root', currentPath);
+    if(dst_path === null) return;
+    for (const src_path of items) {
+        await api('api/move', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({src_root:currentRoot,src_path,dst_root:currentRoot,dst_path})});
+    }
+    loadList();
+}
+
+async function deleteSelection() {
+    const items = selectedOrContext();
+    if (!items.length) return;
+    if(!confirm(`${items.length} Element(e) wirklich löschen?`)) return;
+    for (const path of items) {
+        await api('api/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({root:currentRoot,path})});
+    }
+    loadList();
+}
+
+async function contextAction(action) {
+    hideContextMenu();
+    const path = currentSelectionPath() || contextPath;
+    if (!path) return;
+    if (!selectedPaths.size) selectedPaths.add(path);
+    if (action === 'download') return downloadSelection();
+    if (action === 'rename') return renameSelection();
+    if (action === 'copy') return copySelection();
+    if (action === 'move') return moveSelection();
+    if (action === 'delete') return deleteSelection();
 }
 
 const drop = document.getElementById('drop');
